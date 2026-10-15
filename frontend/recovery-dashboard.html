@@ -1,0 +1,326 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Recovery Engine · AI Revenue Recovery</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Manrope:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+<script src="https://cdn.tailwindcss.com"></script>
+<script>
+tailwind.config = { theme: { extend: {
+  fontFamily: { sans: ['Manrope', 'system-ui', 'sans-serif'] },
+  colors: { ink: '#080D1A', panel: '#0E1526', edge: '#1C2740', rz: '#3395FF', mint: '#2DD4A0', amber2: '#F5B544', rose2: '#F2677A' }
+}}};
+</script>
+<style>
+  body { background: #080D1A; font-feature-settings: "tnum"; }
+  .num { font-variant-numeric: tabular-nums; letter-spacing: -0.02em; }
+  .panel { background: #0E1526; border: 1px solid #1C2740; border-radius: 14px; }
+  .glow { background: radial-gradient(900px 300px at 15% -10%, rgba(51,149,255,.14), transparent 60%); }
+  .skel { background: linear-gradient(90deg,#141d33 25%,#1c2845 50%,#141d33 75%); background-size: 200% 100%; animation: sh 1.4s infinite; border-radius: 8px; }
+  @keyframes sh { to { background-position: -200% 0; } }
+  @keyframes pulse-ring { 0% { box-shadow: 0 0 0 0 rgba(45,212,160,.6);} 100% { box-shadow: 0 0 0 8px rgba(45,212,160,0);} }
+  .live { animation: pulse-ring 1.8s infinite; }
+  .bubble-in { animation: pop .35s ease-out; transform-origin: bottom left; }
+  @keyframes pop { from { opacity: 0; transform: scale(.94) translateY(6px);} }
+  input, select { background: #0A1122; border: 1px solid #1C2740; border-radius: 8px; padding: 8px 10px; width: 100%; color: #E6ECF8; font-size: 13px; }
+  input:focus, select:focus, button:focus-visible { outline: 2px solid #3395FF; outline-offset: 1px; }
+  label span { display: block; font-size: 12px; color: #7F8DAB; margin-bottom: 4px; }
+  tbody tr { cursor: pointer; } tbody tr:hover { background: #121c33; }
+  @media (prefers-reduced-motion: reduce) { * { animation: none !important; } }
+</style>
+</head>
+<body class="text-slate-200 font-sans antialiased min-h-screen">
+
+<header class="sticky top-0 z-20 backdrop-blur bg-ink/85 border-b border-edge">
+  <div class="max-w-7xl mx-auto px-4 sm:px-6 h-16 flex items-center justify-between gap-4">
+    <div class="flex items-center gap-3">
+      <div class="w-9 h-9 rounded-lg bg-rz grid place-items-center font-extrabold text-ink">R</div>
+      <div>
+        <h1 class="font-bold leading-tight">Recovery Engine</h1>
+        <p class="text-xs text-slate-400 leading-tight">AI revenue recovery for failed payments</p>
+      </div>
+    </div>
+    <div class="flex items-center gap-3">
+      <button id="refresh" class="text-sm px-3 py-1.5 rounded-lg border border-edge hover:bg-panel transition">Refresh</button>
+      <div id="status" class="flex items-center gap-2 text-sm px-3 py-1.5 rounded-full border border-edge bg-panel">
+        <span id="dot" class="w-2 h-2 rounded-full bg-amber2"></span><span id="statusText">Connecting…</span>
+      </div>
+    </div>
+  </div>
+</header>
+
+<main class="max-w-7xl mx-auto px-4 sm:px-6 py-8 space-y-8">
+
+  <div id="banner" class="hidden panel p-4 border-rose2/40 text-sm">
+    <p class="font-semibold text-rose2">Can't reach the backend at <span id="baseShown"></span></p>
+    <p class="text-slate-400 mt-1">Start FastAPI with <code class="text-slate-200">uvicorn main:app --reload</code> and make sure CORS allows this page (see the note after the code). Then press Refresh.</p>
+  </div>
+
+  <!-- Hero: recovery split -->
+  <section class="panel glow p-6 sm:p-8">
+    <p class="text-slate-400 text-sm">Failed payments the agent can win back</p>
+    <div class="mt-2 flex flex-wrap items-baseline gap-x-4 gap-y-1">
+      <span id="heroRec" class="num text-5xl sm:text-6xl font-extrabold text-mint">₹—</span>
+      <span class="text-slate-400">of <span id="heroFail" class="num text-slate-200 font-semibold">₹—</span> lost to failures</span>
+    </div>
+    <div class="mt-6 h-3 rounded-full bg-rose2/25 overflow-hidden">
+      <div id="heroBar" class="h-full rounded-full bg-gradient-to-r from-rz to-mint transition-all duration-1000" style="width:0%"></div>
+    </div>
+    <div class="mt-2 flex justify-between text-xs text-slate-400">
+      <span>Recovered by AI agent</span><span>Still at risk</span>
+    </div>
+  </section>
+
+  <!-- Metrics -->
+  <section class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4" id="metrics"></section>
+
+  <!-- Interventions + table -->
+  <section class="grid lg:grid-cols-3 gap-6">
+    <div class="panel p-6 lg:col-span-1">
+      <h2 class="font-bold">Agent interventions</h2>
+      <p class="text-sm text-slate-400 mb-5">How the agent chose to respond to each failure</p>
+      <div id="actions" class="space-y-4"></div>
+    </div>
+
+    <div class="panel lg:col-span-2 overflow-hidden">
+      <div class="p-6 pb-4 flex flex-wrap items-center justify-between gap-3">
+        <div>
+          <h2 class="font-bold">Recovery queue</h2>
+          <p class="text-sm text-slate-400">Select a row to debug it with the agent</p>
+        </div>
+        <input id="search" placeholder="Search payment, reason, action" class="!w-full sm:!w-64">
+      </div>
+      <div class="overflow-x-auto max-h-[420px] overflow-y-auto">
+        <table class="w-full text-sm">
+          <thead class="sticky top-0 bg-panel text-left text-slate-400 text-xs">
+            <tr class="border-y border-edge">
+              <th class="px-6 py-2.5 font-medium">Payment</th>
+              <th class="px-3 py-2.5 font-medium text-right">Amount</th>
+              <th class="px-3 py-2.5 font-medium">Failure reason</th>
+              <th class="px-3 py-2.5 font-medium">Agent action</th>
+              <th class="px-6 py-2.5 font-medium text-right">Expected recovery</th>
+            </tr>
+          </thead>
+          <tbody id="rows"></tbody>
+        </table>
+      </div>
+    </div>
+  </section>
+
+  <!-- Debugger -->
+  <section class="panel p-6 sm:p-8" id="debugger">
+    <div class="flex flex-wrap items-end justify-between gap-3 mb-6">
+      <div>
+        <h2 class="text-xl font-bold">Live AI transaction debugger</h2>
+        <p class="text-sm text-slate-400">Send one failed payment to the agent and see the strategy and customer message it produces</p>
+      </div>
+      <div class="flex flex-wrap gap-2" id="presets"></div>
+    </div>
+
+    <div class="grid lg:grid-cols-2 gap-8">
+      <form id="form" class="grid grid-cols-2 gap-3 content-start" onsubmit="return false">
+        <label><span>Payment ID</span><input name="payment_id"></label>
+        <label><span>Merchant ID</span><input name="merchant_id"></label>
+        <label><span>Customer ID</span><input name="customer_id"></label>
+        <label><span>Amount (₹)</span><input name="amount" type="number" step="0.01"></label>
+        <label><span>Payment method</span>
+          <select name="payment_method"><option>credit_card</option><option>debit_card</option><option>upi</option><option>netbanking</option><option>wallet</option></select></label>
+        <label><span>Failure reason</span>
+          <select name="failure_reason"><option>INSUFFICIENT_FUNDS</option><option>BANK_DECLINED</option><option>OTP_TIMEOUT</option><option>NETWORK_ERROR</option><option>CARD_EXPIRED</option><option>UPI_PIN_INCORRECT</option><option>LIMIT_EXCEEDED</option></select></label>
+        <label><span>Retry count</span><input name="retry_count" type="number" min="0"></label>
+        <label class="flex items-end gap-2 pb-2"><input name="checkout_attempted" type="checkbox" class="!w-4 !h-4"><span class="!mb-0 !text-slate-300">Customer reached checkout</span></label>
+        <button id="diagnose" class="col-span-2 mt-2 py-3 rounded-lg bg-rz hover:bg-blue-400 text-ink font-bold transition disabled:opacity-60">Diagnose with AI agent</button>
+      </form>
+
+      <div id="result" class="min-h-[320px] rounded-xl border border-dashed border-edge p-5 grid place-items-center text-center text-slate-500 text-sm">
+        Choose a scenario and run the agent. The strategy and the generated message appear here.
+      </div>
+    </div>
+  </section>
+
+  <footer class="text-xs text-slate-500 pb-6">Connected to <span id="baseFoot"></span> · Razorpay AI Buildathon · Track 3</footer>
+</main>
+
+<script>
+const API = 'http://localhost:8000';
+const $ = s => document.querySelector(s);
+const inr = n => '₹' + Number(n || 0).toLocaleString('en-IN', { maximumFractionDigits: 0 });
+const human = s => String(s ?? '—').replace(/_/g, ' ').toLowerCase().replace(/^\w/, c => c.toUpperCase());
+const esc = s => String(s ?? '').replace(/[&<>"]/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
+const COLORS = ['#3395FF', '#2DD4A0', '#F5B544', '#B48CFF', '#F2677A', '#5EEAD4'];
+let samples = [];
+
+$('#baseShown').textContent = API; $('#baseFoot').textContent = API;
+
+function setStatus(ok) {
+  $('#dot').className = 'w-2 h-2 rounded-full ' + (ok ? 'bg-mint live' : 'bg-rose2');
+  $('#statusText').textContent = ok ? 'Backend live' : 'Backend offline';
+  $('#banner').classList.toggle('hidden', ok);
+}
+
+function skeleton() {
+  $('#metrics').innerHTML = Array(4).fill('<div class="panel p-5"><div class="skel h-4 w-24 mb-4"></div><div class="skel h-8 w-36"></div></div>').join('');
+}
+
+async function load() {
+  skeleton();
+  try {
+    const res = await fetch(API + '/api/recovery/summary');
+    if (!res.ok) throw new Error(res.status);
+    const d = await res.json();
+    setStatus(true);
+    render(d);
+  } catch (e) {
+    setStatus(false);
+    $('#metrics').innerHTML = '';
+    $('#rows').innerHTML = '<tr><td colspan="5" class="px-6 py-10 text-center text-slate-500">No data yet. Connect the backend to see the recovery queue.</td></tr>';
+  }
+}
+
+function render(d) {
+  const rate = Number(d.projected_recovery_rate_pct || 0);
+  $('#heroRec').textContent = inr(d.total_projected_recovery_inr);
+  $('#heroFail').textContent = inr(d.total_failed_amount_inr);
+  requestAnimationFrame(() => $('#heroBar').style.width = Math.min(rate, 100) + '%');
+
+  const cards = [
+    ['Total failed volume', inr(d.total_failed_amount_inr), 'Revenue lost to failed payments', 'text-rose2'],
+    ['Projected AI recovery', inr(d.total_projected_recovery_inr), 'Expected to return with the agent', 'text-mint'],
+    ['Recovery success rate', rate.toFixed(1) + '%', 'Share of failed volume recovered', 'text-rz'],
+    ['Transactions processed', Number(d.total_records_processed || 0).toLocaleString('en-IN'), 'Analysed by the agent', 'text-slate-100'],
+  ];
+  $('#metrics').innerHTML = cards.map(c => `
+    <div class="panel p-5">
+      <p class="text-sm text-slate-400">${c[0]}</p>
+      <p class="num text-3xl font-extrabold mt-2 ${c[3]}">${c[1]}</p>
+      <p class="text-xs text-slate-500 mt-2">${c[2]}</p>
+    </div>`).join('');
+
+  const ab = Object.entries(d.action_breakdown || {}).sort((a, b) => b[1] - a[1]);
+  const total = ab.reduce((s, [, v]) => s + v, 0) || 1;
+  $('#actions').innerHTML = ab.length ? ab.map(([k, v], i) => `
+    <div>
+      <div class="flex justify-between text-sm mb-1.5"><span class="font-medium">${esc(human(k))}</span>
+        <span class="num text-slate-400">${v.toLocaleString('en-IN')} · ${(v / total * 100).toFixed(0)}%</span></div>
+      <div class="h-2 rounded-full bg-edge"><div class="h-2 rounded-full transition-all duration-1000" style="width:${v / total * 100}%;background:${COLORS[i % COLORS.length]}"></div></div>
+    </div>`).join('') : '<p class="text-sm text-slate-500">No interventions recorded yet.</p>';
+
+  samples = d.sample_recoveries || [];
+  drawRows();
+}
+
+function actionPill(a) {
+  const i = Math.abs([...String(a)].reduce((h, c) => h * 31 + c.charCodeAt(0), 7)) % COLORS.length;
+  return `<span class="px-2 py-0.5 rounded-full text-xs font-semibold" style="color:${COLORS[i]};background:${COLORS[i]}22">${esc(human(a))}</span>`;
+}
+
+function drawRows() {
+  const q = $('#search').value.toLowerCase();
+  const list = samples.filter(t => JSON.stringify(t).toLowerCase().includes(q));
+  $('#rows').innerHTML = list.length ? list.map((t, i) => `
+    <tr class="border-b border-edge/60" data-i="${samples.indexOf(t)}">
+      <td class="px-6 py-3 font-semibold">${esc(t.payment_id)}</td>
+      <td class="px-3 py-3 text-right num">${inr(t.amount)}</td>
+      <td class="px-3 py-3 text-slate-300">${esc(human(t.failure_reason))}</td>
+      <td class="px-3 py-3">${actionPill(t.action)}</td>
+      <td class="px-6 py-3 text-right num font-semibold text-mint">${inr(t.expected_recovery_amount)}</td>
+    </tr>`).join('') : '<tr><td colspan="5" class="px-6 py-10 text-center text-slate-500">No transactions match that search.</td></tr>';
+}
+
+/* ---------- Debugger ---------- */
+const PRESETS = {
+  'Insufficient funds': { payment_id: 'P-99999', merchant_id: 'M-001', customer_id: 'C-0042', amount: 4999, payment_method: 'credit_card', failure_reason: 'INSUFFICIENT_FUNDS', retry_count: 1, checkout_attempted: true },
+  'OTP timeout': { payment_id: 'P-99998', merchant_id: 'M-001', customer_id: 'C-0107', amount: 1299, payment_method: 'upi', failure_reason: 'OTP_TIMEOUT', retry_count: 0, checkout_attempted: true },
+  'High-value decline': { payment_id: 'P-99997', merchant_id: 'M-002', customer_id: 'C-0310', amount: 24999, payment_method: 'debit_card', failure_reason: 'BANK_DECLINED', retry_count: 2, checkout_attempted: true },
+  'Network error': { payment_id: 'P-99996', merchant_id: 'M-001', customer_id: 'C-0555', amount: 799, payment_method: 'netbanking', failure_reason: 'NETWORK_ERROR', retry_count: 0, checkout_attempted: false },
+};
+const form = $('#form');
+
+function fill(p) {
+  for (const [k, v] of Object.entries(p)) {
+    const el = form.elements[k]; if (!el) continue;
+    if (el.type === 'checkbox') el.checked = !!v;
+    else {
+      if (el.tagName === 'SELECT' && ![...el.options].some(o => o.value === String(v))) el.add(new Option(String(v), String(v)));
+      el.value = v;
+    }
+  }
+}
+function payload() {
+  const f = form.elements;
+  return {
+    payment_id: f.payment_id.value, merchant_id: f.merchant_id.value, customer_id: f.customer_id.value,
+    amount: parseFloat(f.amount.value) || 0, currency: 'INR', payment_method: f.payment_method.value,
+    payment_status: 'FAILED', failure_reason: f.failure_reason.value,
+    retry_count: parseInt(f.retry_count.value) || 0, checkout_attempted: f.checkout_attempted.checked,
+  };
+}
+
+$('#presets').innerHTML = Object.keys(PRESETS).map(n => `<button data-p="${n}" class="text-xs px-3 py-1.5 rounded-full border border-edge hover:border-rz hover:text-rz transition">${n}</button>`).join('');
+$('#presets').addEventListener('click', e => { const n = e.target.dataset.p; if (n) fill(PRESETS[n]); });
+fill(PRESETS['Insufficient funds']);
+
+$('#rows').addEventListener('click', e => {
+  const tr = e.target.closest('tr[data-i]'); if (!tr) return;
+  const t = samples[tr.dataset.i];
+  fill({ ...PRESETS['Insufficient funds'], ...t, amount: t.amount });
+  $('#debugger').scrollIntoView({ behavior: 'smooth', block: 'start' });
+});
+
+function findNudge(o) {
+  if (!o || typeof o !== 'object') return null;
+  if (o.ai_agent_nudge) return o.ai_agent_nudge;
+  for (const v of Object.values(o)) { const r = findNudge(v); if (r) return r; }
+  return null;
+}
+function fmtVal(v) {
+  if (typeof v === 'boolean') return v ? 'Yes' : 'No';
+  if (v && typeof v === 'object') return `<span class="text-slate-300">${esc(JSON.stringify(v))}</span>`;
+  return esc(typeof v === 'string' ? human(v) : v);
+}
+
+$('#diagnose').addEventListener('click', async () => {
+  const btn = $('#diagnose'), out = $('#result');
+  btn.disabled = true; btn.textContent = 'Agent is thinking…';
+  out.className = 'min-h-[320px] rounded-xl border border-edge p-5';
+  out.innerHTML = '<div class="space-y-3"><div class="skel h-5 w-40"></div><div class="skel h-4 w-full"></div><div class="skel h-4 w-5/6"></div><div class="skel h-24 w-full mt-6"></div></div>';
+  try {
+    const res = await fetch(API + '/api/recovery/diagnose', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload()) });
+    if (!res.ok) throw new Error('The agent returned status ' + res.status);
+    const d = await res.json();
+    setStatus(true);
+    const nudge = findNudge(d);
+    const facts = Object.entries(d).filter(([k]) => k !== 'ai_agent_nudge');
+    out.innerHTML = `
+      <div class="space-y-5">
+        <div>
+          <p class="text-sm text-slate-400 mb-2">Recovery strategy</p>
+          <dl class="grid grid-cols-2 gap-x-4 gap-y-3 text-sm">
+            ${facts.map(([k, v]) => `<div><dt class="text-xs text-slate-500">${esc(human(k))}</dt><dd class="font-semibold break-words">${fmtVal(v)}</dd></div>`).join('')}
+          </dl>
+        </div>
+        <div>
+          <p class="text-sm text-slate-400 mb-2">Message the agent would send</p>
+          ${nudge ? `<div class="bubble-in max-w-md rounded-2xl rounded-bl-sm bg-[#12332B] border border-mint/25 px-4 py-3 text-sm leading-relaxed whitespace-pre-line">${esc(nudge)}</div>
+          <button id="copy" class="mt-2 text-xs text-slate-400 hover:text-slate-100">Copy message</button>`
+          : '<p class="text-sm text-slate-500">This strategy does not include a customer message.</p>'}
+        </div>
+      </div>`;
+    const c = $('#copy'); if (c) c.onclick = () => { navigator.clipboard.writeText(nudge); c.textContent = 'Copied'; };
+  } catch (e) {
+    setStatus(false);
+    out.innerHTML = `<div class="text-sm"><p class="font-semibold text-rose2">The agent could not be reached</p><p class="text-slate-400 mt-1">${esc(e.message)}. Check that the backend is running at ${API} and press Diagnose again.</p></div>`;
+  } finally {
+    btn.disabled = false; btn.textContent = 'Diagnose with AI agent';
+  }
+});
+
+$('#search').addEventListener('input', drawRows);
+$('#refresh').addEventListener('click', load);
+load();
+setInterval(load, 30000);
+</script>
+</body>
+</html>
